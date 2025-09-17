@@ -38,7 +38,7 @@ st.set_page_config(
     page_title="🤖 AI Agent Toolkit",
     page_icon="🤖",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",  # Force sidebar to be expanded
     menu_items={
         'Get Help': None,
         'Report a bug': None,
@@ -54,6 +54,29 @@ footer {visibility: hidden;}
 header {visibility: hidden;}
 .stDeployButton {display:none;}
 .stDecoration {display:none;}
+
+/* Force sidebar to be visible and expanded */
+.css-1d391kg {
+    padding-top: 1rem;
+}
+
+/* Ensure sidebar stays visible */
+section[data-testid="stSidebar"] {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+}
+
+section[data-testid="stSidebar"] > div {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: 300px !important;
+}
+
+/* Hide sidebar collapse button to prevent accidental hiding */
+button[data-testid="collapsedControl"] {
+    display: none !important;
+}
 
 /* Custom styling for AI Agent Toolkit */
 .main-header {
@@ -203,6 +226,13 @@ header {visibility: hidden;}
     box-shadow: 0 4px 20px rgba(0,0,0,0.1);
 }
 
+/* Sidebar visibility fix */
+.sidebar-content {
+    visibility: visible !important;
+    opacity: 1 !important;
+    display: block !important;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .user-message, .assistant-message {
@@ -217,11 +247,54 @@ header {visibility: hidden;}
     .sidebar-section {
         padding: 10px;
     }
+    
+    /* Mobile sidebar adjustments */
+    section[data-testid="stSidebar"] {
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+    }
 }
 </style>
 """
 
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# Force sidebar to stay open with JavaScript
+sidebar_js = """
+<script>
+// Force sidebar to stay expanded
+document.addEventListener('DOMContentLoaded', function() {
+    const sidebar = document.querySelector('section[data-testid="stSidebar"]');
+    if (sidebar) {
+        sidebar.style.display = 'block';
+        sidebar.style.visibility = 'visible';
+        sidebar.style.opacity = '1';
+    }
+    
+    // Remove any collapse functionality
+    const collapseBtn = document.querySelector('button[data-testid="collapsedControl"]');
+    if (collapseBtn) {
+        collapseBtn.style.display = 'none';
+    }
+});
+
+// Continuous check to ensure sidebar stays visible
+setInterval(function() {
+    const sidebar = document.querySelector('section[data-testid="stSidebar"]');
+    if (sidebar) {
+        if (sidebar.style.width === '0px' || sidebar.style.display === 'none') {
+            sidebar.style.width = '300px';
+            sidebar.style.display = 'block';
+            sidebar.style.visibility = 'visible';
+            sidebar.style.opacity = '1';
+        }
+    }
+}, 500);
+</script>
+"""
+
+st.markdown(sidebar_js, unsafe_allow_html=True)
 
 # ======================================================
 # 🔑 API CONFIGURATION
@@ -542,7 +615,8 @@ def init_session_state():
         'auth_mode': "login",
         'current_page': "Chat",
         'custom_bots': {},
-        'chat_input': ''
+        'chat_input': '',
+        'sidebar_state': "expanded"  # Add explicit sidebar state
     }
     
     for key, default_value in defaults.items():
@@ -564,7 +638,10 @@ def display_logo():
 
 def display_sidebar():
     """Display the sidebar with navigation and agent selection"""
+    # Ensure sidebar stays visible with explicit container
     with st.sidebar:
+        st.markdown('<div class="sidebar-content">', unsafe_allow_html=True)
+        
         # Logo at top of sidebar
         display_logo()
         
@@ -625,6 +702,8 @@ def display_sidebar():
             st.success("Logged out successfully!")
             time.sleep(1)
             st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def display_page_navigation():
     """Display page navigation in sidebar"""
@@ -783,6 +862,7 @@ def login_section():
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
                     st.session_state.user_id = result['user'].get('id', f"user_{hash(email)}")
+                    st.session_state.sidebar_state = "expanded"  # Ensure sidebar is expanded after login
                     st.success(result['message'])
                     time.sleep(1)
                     st.rerun()
@@ -1255,6 +1335,41 @@ def display_user_profile_page():
 def main():
     """Main application function"""
     init_session_state()
+    
+    # Add JavaScript to monitor sidebar state
+    if st.session_state.authenticated:
+        sidebar_monitor_js = """
+        <script>
+        // Monitor and maintain sidebar visibility after login
+        function maintainSidebar() {
+            const sidebar = document.querySelector('section[data-testid="stSidebar"]');
+            if (sidebar) {
+                // Force sidebar to be visible and expanded
+                sidebar.style.width = '300px';
+                sidebar.style.minWidth = '300px';
+                sidebar.style.maxWidth = '300px';
+                sidebar.style.display = 'block';
+                sidebar.style.visibility = 'visible';
+                sidebar.style.opacity = '1';
+                
+                // Hide the collapse button to prevent accidental hiding
+                const collapseBtn = document.querySelector('button[data-testid="collapsedControl"]');
+                if (collapseBtn) {
+                    collapseBtn.style.display = 'none';
+                }
+            }
+        }
+        
+        // Run immediately and then every 100ms to ensure sidebar stays visible
+        maintainSidebar();
+        setInterval(maintainSidebar, 100);
+        
+        // Also run when DOM changes (for when Streamlit re-renders)
+        const observer = new MutationObserver(maintainSidebar);
+        observer.observe(document.body, { childList: true, subtree: true });
+        </script>
+        """
+        st.markdown(sidebar_monitor_js, unsafe_allow_html=True)
     
     if not st.session_state.authenticated:
         login_form()
