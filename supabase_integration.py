@@ -402,4 +402,3 @@ class EnhancedSupabaseAuth:
 
 # Global enhanced auth instance
 enhanced_auth = EnhancedSupabaseAuth()
-
