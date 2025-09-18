@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 import logging
 import re
 from datetime import datetime
+from enhanced_auth_system import AuthSystem as EnhancedAuthSystem
 
 logger = logging.getLogger(__name__)
 
