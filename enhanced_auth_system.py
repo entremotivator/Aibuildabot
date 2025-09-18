@@ -8,30 +8,31 @@ from enhanced_auth_system import AuthSystem as EnhancedAuthSystem
 
 logger = logging.getLogger(__name__)
 
+
 class AuthenticationManager:
     """Manages user authentication and session state"""
-    
+
     def __init__(self):
         self.supabase_client = enhanced_supabase
-    
+
     def initialize_session_state(self):
         """Initialize authentication-related session state"""
-        if 'authenticated' not in st.session_state:
-            st.session_state.authenticated = False
-        if 'user_data' not in st.session_state:
-            st.session_state.user_data = None
-        if 'user_profile' not in st.session_state:
-            st.session_state.user_profile = None
-        if 'login_attempts' not in st.session_state:
-            st.session_state.login_attempts = 0
-        if 'session_start_time' not in st.session_state:
-            st.session_state.session_start_time = None
-    
+        defaults = {
+            "authenticated": False,
+            "user_data": None,
+            "user_profile": None,
+            "login_attempts": 0,
+            "session_start_time": None
+        }
+        for key, value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
+
     def validate_email(self, email: str) -> bool:
         """Validate email format"""
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         return re.match(pattern, email) is not None
-    
+
     def validate_password(self, password: str) -> tuple[bool, str]:
         """Validate password strength"""
         if len(password) < 8:
@@ -42,170 +43,139 @@ class AuthenticationManager:
             return False, "Password must contain at least one lowercase letter"
         if not re.search(r'[0-9]', password):
             return False, "Password must contain at least one number"
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        if not re.search(r'[!@#$%^&*(),.?\":{}|<>]', password):
             return False, "Password must contain at least one special character"
         return True, "Password is valid"
-    
-    def sign_up_user(self, email: str, password: str, full_name: str, 
+
+    def sign_up_user(self, email: str, password: str, full_name: str,
                      company_name: str = None, job_title: str = None) -> Dict[str, Any]:
         """Register a new user"""
         try:
-            # Validate inputs
             if not self.validate_email(email):
                 return {'success': False, 'error': 'Invalid email format'}
-            
+
             valid_password, password_message = self.validate_password(password)
             if not valid_password:
                 return {'success': False, 'error': password_message}
-            
-            # Attempt registration
+
             result = self.supabase_client.sign_up_user(email, password, full_name)
-            
-            if result['success']:
-                # Update profile with additional info
-                if result['user']:
-                    profile_updates = {}
-                    if company_name:
-                        profile_updates['company_name'] = company_name
-                    if job_title:
-                        profile_updates['job_title'] = job_title
-                    
-                    if profile_updates:
-                        self.supabase_client.update_user_profile(
-                            result['user'].id, profile_updates
-                        )
-            
+
+            if result['success'] and result.get('user'):
+                profile_updates = {}
+                if company_name:
+                    profile_updates['company_name'] = company_name
+                if job_title:
+                    profile_updates['job_title'] = job_title
+
+                if profile_updates:
+                    self.supabase_client.update_user_profile(
+                        result['user'].id, profile_updates
+                    )
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Sign up error: {str(e)}")
             return {'success': False, 'error': str(e)}
-    
+
     def sign_in_user(self, email: str, password: str) -> Dict[str, Any]:
         """Sign in an existing user"""
         try:
             if not self.validate_email(email):
                 return {'success': False, 'error': 'Invalid email format'}
-            
+
             result = self.supabase_client.sign_in_user(email, password)
-            
-            if result['success'] and result['user']:
-                # Load user profile
+
+            if result['success'] and result.get('user'):
                 profile = self.supabase_client.get_user_profile(result['user'].id)
-                
-                # Update session state
+
                 st.session_state.authenticated = True
                 st.session_state.user_data = result['user']
                 st.session_state.user_profile = profile
                 st.session_state.login_attempts = 0
                 st.session_state.session_start_time = datetime.now()
-                
-                # Initialize other session state
-                if 'chat_history' not in st.session_state:
-                    st.session_state.chat_history = []
-                if 'current_agent' not in st.session_state:
-                    st.session_state.current_agent = "Startup Strategist"
-                if 'current_page' not in st.session_state:
-                    st.session_state.current_page = "Chat"
-            
+
+                st.session_state.setdefault("chat_history", [])
+                st.session_state.setdefault("current_agent", "Startup Strategist")
+                st.session_state.setdefault("current_page", "Chat")
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Sign in error: {str(e)}")
             return {'success': False, 'error': str(e)}
-    
+
     def sign_out_user(self) -> Dict[str, Any]:
         """Sign out current user"""
         try:
             result = self.supabase_client.sign_out_user()
-            
-            # Clear session state
+
             st.session_state.authenticated = False
             st.session_state.user_data = None
             st.session_state.user_profile = None
             st.session_state.chat_history = []
             st.session_state.session_start_time = None
-            
-            # Clear other session data
+
             for key in list(st.session_state.keys()):
-                if key.startswith('custom_bots') or key.startswith('api_keys'):
+                if key.startswith(('custom_bots', 'api_keys')):
                     del st.session_state[key]
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Sign out error: {str(e)}")
             return {'success': False, 'error': str(e)}
-    
+
     def get_current_user_id(self) -> Optional[str]:
         """Get current user ID"""
         if st.session_state.authenticated and st.session_state.user_data:
             return st.session_state.user_data.id
         return None
-    
+
     def is_admin(self) -> bool:
         """Check if current user is admin"""
         if not st.session_state.authenticated or not st.session_state.user_profile:
             return False
         return st.session_state.user_profile.get('role') == 'admin'
-    
+
     def get_user_subscription_tier(self) -> str:
         """Get user's subscription tier"""
         if not st.session_state.authenticated or not st.session_state.user_profile:
             return 'free'
         return st.session_state.user_profile.get('subscription_tier', 'free')
-    
+
     def check_usage_limits(self, action: str) -> tuple[bool, str]:
         """Check if user can perform action based on subscription limits"""
         if not st.session_state.authenticated:
             return False, "Please sign in to continue"
-        
+
         tier = self.get_user_subscription_tier()
-        
-        # Define limits based on subscription tier
         limits = {
-            'free': {
-                'daily_messages': 50,
-                'custom_bots': 5,
-                'api_providers': 2
-            },
-            'pro': {
-                'daily_messages': 500,
-                'custom_bots': 25,
-                'api_providers': 5
-            },
-            'enterprise': {
-                'daily_messages': 2000,
-                'custom_bots': 100,
-                'api_providers': 10
-            }
+            'free': {'daily_messages': 50, 'custom_bots': 5, 'api_providers': 2},
+            'pro': {'daily_messages': 500, 'custom_bots': 25, 'api_providers': 5},
+            'enterprise': {'daily_messages': 2000, 'custom_bots': 100, 'api_providers': 10}
         }
-        
         user_limits = limits.get(tier, limits['free'])
-        
-        # Check specific action limits
+
         if action == 'send_message':
-            # In a real implementation, you'd check daily message count from database
-            return True, "OK"  # Simplified for demo
+            return True, "OK"
         elif action == 'create_custom_bot':
-            # Check custom bot count
             custom_bots = st.session_state.get('custom_bots', {}).get(self.get_current_user_id(), {})
             if len(custom_bots) >= user_limits['custom_bots']:
                 return False, f"Custom bot limit reached ({user_limits['custom_bots']} for {tier} tier)"
             return True, "OK"
-        
+
         return True, "OK"
 
 
-# Global authentication manager
+# Global instance
 auth_manager = AuthenticationManager()
 
 
 def render_authentication_ui():
     """Render the authentication UI"""
     auth_manager.initialize_session_state()
-    
-    # Custom CSS for authentication
+
     st.markdown("""
     <style>
     .auth-container {
@@ -218,37 +188,9 @@ def render_authentication_ui():
         color: white;
         text-align: center;
     }
-    .auth-header {
-        font-size: 3rem;
-        margin-bottom: 1rem;
-    }
-    .auth-title {
-        font-size: 2rem;
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-    }
-    .auth-subtitle {
-        font-size: 1rem;
-        opacity: 0.9;
-        margin-bottom: 2rem;
-    }
-    .feature-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 1.5rem;
-        margin: 2rem 0;
-    }
-    .feature-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        color: #333;
-    }
-    .feature-icon {
-        font-size: 2rem;
-        margin-bottom: 1rem;
-    }
+    .auth-header { font-size: 3rem; margin-bottom: 1rem; }
+    .auth-title { font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem; }
+    .auth-subtitle { font-size: 1rem; opacity: 0.9; margin-bottom: 2rem; }
     .security-badge {
         background: rgba(40, 167, 69, 0.1);
         border: 1px solid #28a745;
@@ -260,8 +202,7 @@ def render_authentication_ui():
     }
     </style>
     """, unsafe_allow_html=True)
-    
-    # Header
+
     st.markdown("""
     <div class="auth-container">
         <div class="auth-header">🧠</div>
@@ -269,28 +210,21 @@ def render_authentication_ui():
         <div class="auth-subtitle">Professional Multi-LLM Platform with Real User Management</div>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Security badge
+
     st.markdown("""
     <div class="security-badge">
         🔒 Enterprise-grade security with encrypted API key storage
     </div>
     """, unsafe_allow_html=True)
-    
-    # Authentication tabs
+
     tab1, tab2 = st.tabs(["🔐 Sign In", "📝 Create Account"])
-    
     with tab1:
         render_sign_in_form()
-    
     with tab2:
         render_sign_up_form()
-    
-    # Features section
+
     st.markdown("### ✨ Platform Features")
-    
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         st.markdown("""
         **🤖 Multi-LLM Support**
@@ -298,18 +232,16 @@ def render_authentication_ui():
         - Anthropic Claude
         - Google Gemini
         - DeepSeek & Groq
-        - Your own API keys
+        - Bring your own API keys
         """)
-    
     with col2:
         st.markdown("""
         **🛠️ Custom AI Agents**
         - Create specialized bots
-        - Business-focused templates
+        - Business templates
         - Advanced prompt engineering
         - Share with team
         """)
-    
     with col3:
         st.markdown("""
         **👥 User Management**
@@ -323,29 +255,27 @@ def render_authentication_ui():
 def render_sign_in_form():
     """Render sign in form"""
     st.subheader("Welcome Back!")
-    
     with st.form("sign_in_form"):
         email = st.text_input("📧 Email Address", placeholder="Enter your email")
         password = st.text_input("🔒 Password", type="password", placeholder="Enter your password")
-        
+
         col1, col2 = st.columns(2)
         with col1:
             remember_me = st.checkbox("Remember me")
         with col2:
             forgot_password = st.form_submit_button("Forgot Password?")
-        
+
         sign_in_button = st.form_submit_button("🚀 Sign In", use_container_width=True)
-        
+
         if forgot_password:
-            st.info("Password reset functionality will be implemented with Supabase Auth")
-        
+            st.info("Password reset will be handled with Supabase Auth")
+
         if sign_in_button:
             if not email or not password:
                 st.error("Please enter both email and password")
             else:
                 with st.spinner("Signing in..."):
                     result = auth_manager.sign_in_user(email, password)
-                    
                     if result['success']:
                         st.success(result['message'])
                         st.rerun()
@@ -353,47 +283,42 @@ def render_sign_in_form():
                         st.session_state.login_attempts += 1
                         st.error(f"❌ {result['error']}")
                         if st.session_state.login_attempts >= 5:
-                            st.warning("Too many failed attempts. Please try again later.")
+                            st.warning("Too many failed attempts. Try again later.")
 
 
 def render_sign_up_form():
     """Render sign up form"""
     st.subheader("Create Your Account")
-    
     with st.form("sign_up_form"):
         col1, col2 = st.columns(2)
-        
         with col1:
             full_name = st.text_input("👤 Full Name*", placeholder="Enter your full name")
             email = st.text_input("📧 Email Address*", placeholder="Enter your email")
             password = st.text_input("🔒 Password*", type="password", placeholder="Create a strong password")
-        
         with col2:
             company_name = st.text_input("🏢 Company Name", placeholder="Your company (optional)")
             job_title = st.text_input("💼 Job Title", placeholder="Your role (optional)")
-            confirm_password = st.text_input("🔒 Confirm Password*", type="password", placeholder="Confirm your password")
-        
+            confirm_password = st.text_input("🔒 Confirm Password*", type="password", placeholder="Confirm password")
+
         agree_terms = st.checkbox("I agree to the Terms of Service and Privacy Policy*")
         newsletter = st.checkbox("Subscribe to product updates and tips")
-        
+
         sign_up_button = st.form_submit_button("✨ Create Account", use_container_width=True)
-        
+
         if sign_up_button:
-            # Validation
             if not all([full_name, email, password, confirm_password]):
-                st.error("Please fill in all required fields (marked with *)")
+                st.error("Please fill in all required fields (*)")
             elif not auth_manager.validate_email(email):
-                st.error("Please enter a valid email address")
+                st.error("Invalid email format")
             elif password != confirm_password:
                 st.error("Passwords do not match")
             elif not agree_terms:
-                st.error("Please agree to the Terms of Service")
+                st.error("You must agree to the Terms of Service")
             else:
                 with st.spinner("Creating your account..."):
                     result = auth_manager.sign_up_user(
                         email, password, full_name, company_name, job_title
                     )
-                    
                     if result['success']:
                         st.success("🎉 " + result['message'])
                         st.info("You can now sign in with your credentials!")
@@ -405,24 +330,20 @@ def render_user_header():
     """Render header for authenticated users"""
     if not st.session_state.authenticated:
         return
-    
+
     col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-    
     with col1:
         user_name = st.session_state.user_profile.get('full_name', 'User') if st.session_state.user_profile else 'User'
         st.markdown(f"### 👋 Welcome back, {user_name}!")
-    
+
     with col2:
         tier = auth_manager.get_user_subscription_tier()
-        tier_color = {'free': '🆓', 'pro': '⭐', 'enterprise': '💎'}
-        st.metric("Plan", f"{tier_color.get(tier, '🆓')} {tier.title()}")
-    
+        tier_icon = {'free': '🆓', 'pro': '⭐', 'enterprise': '💎'}
+        st.metric("Plan", f"{tier_icon.get(tier, '🆓')} {tier.title()}")
+
     with col3:
-        if auth_manager.is_admin():
-            st.metric("Role", "👑 Admin")
-        else:
-            st.metric("Role", "👤 User")
-    
+        st.metric("Role", "👑 Admin" if auth_manager.is_admin() else "👤 User")
+
     with col4:
         if st.button("🚪 Sign Out", use_container_width=True):
             result = auth_manager.sign_out_user()
